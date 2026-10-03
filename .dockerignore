@@ -1,0 +1,4 @@
+venv/
+__pycache__/
+.env
+road_damage_local.db

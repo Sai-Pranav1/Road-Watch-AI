@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env.local
+.env
+road_damage_local.db
+app/static/uploads/*
+!app/static/uploads/.gitkeep

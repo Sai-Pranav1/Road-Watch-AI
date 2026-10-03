@@ -1,0 +1,38 @@
+/* Custom platform stylesheet */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom leaflet scrollbar & container overrides */
+.leaflet-container {
+  font-family: inherit;
+  background: #020617;
+}
+
+.custom-leaflet-marker {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.custom-leaflet-marker:hover {
+  transform: scale(1.3);
+  z-index: 1000 !important;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

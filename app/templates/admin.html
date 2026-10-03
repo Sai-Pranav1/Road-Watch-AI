@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoadGuard AI | Authority Triage & Dispatch Dashboard</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .marker-critical {
+      border-radius: 50%;
+      animation: pulse-ring 2s infinite;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 0;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .leaflet-popup-tip {
+      background: #0f172a !important;
+      border: 1px solid #334155;
+    }
+    .leaflet-popup-content {
+      margin: 12px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <i data-lucide="activity" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <span class="text-lg font-bold tracking-tight text-white">
+            RoadGuard Command Center
+          </span>
+          <span class="hidden sm:inline-block ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Live Triage & Dispatch
+          </span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2.5">
+        <a href="/api/v1/reports/export/csv" class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 shadow-sm" title="Export reports to CSV">
+          <i data-lucide="download" class="w-3.5 h-3.5 text-cyan-400"></i>
+          <span class="hidden md:inline">Export CSV</span>
+        </a>
+
+        <button onclick="fetchReportsAndRefresh()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition border border-slate-700" title="Refresh Live Feeds">
+          <i data-lucide="rotate-cw" id="refreshIcon" class="w-4 h-4"></i>
+        </button>
+
+        <button onclick="adminLogout()" class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 shadow-sm" title="Lock dashboard">
+          <i data-lucide="log-out" class="w-3.5 h-3.5 text-red-400"></i>
+          <span class="hidden md:inline">Logout</span>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- KPI Metrics Bar -->
+  <section class="border-b border-slate-800/80 bg-slate-900/40 py-3.5">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <!-- Total -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-slate-400">Total Hazards</div>
+        <div class="text-xl font-bold text-white mt-0.5" id="kpiTotal">0</div>
+      </div>
+      <!-- Pending -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-amber-400 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          Pending Triage
+        </div>
+        <div class="text-xl font-bold text-amber-300 mt-0.5" id="kpiPending">0</div>
+      </div>
+      <!-- Assigned / In Progress -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-cyan-400 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+          In Progress
+        </div>
+        <div class="text-xl font-bold text-cyan-300 mt-0.5" id="kpiInProgress">0</div>
+      </div>
+      <!-- Resolved -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-emerald-400 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          Resolved
+        </div>
+        <div class="text-xl font-bold text-emerald-300 mt-0.5" id="kpiResolved">0</div>
+      </div>
+      <!-- Critical / High Priority -->
+      <div class="bg-slate-900/80 border border-red-900/40 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-red-400 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+          Critical (Score &ge; 75)
+        </div>
+        <div class="text-xl font-bold text-red-400 mt-0.5" id="kpiCritical">0</div>
+      </div>
+      <!-- Avg Priority -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-3">
+        <div class="text-[11px] font-medium text-slate-400">Avg Priority Score</div>
+        <div class="text-xl font-bold text-slate-200 mt-0.5" id="kpiAvgScore">0.0</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Content: Map & Triage Split Grid -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+    
+    <!-- Left Column: Interactive Map (5 Cols) -->
+    <div class="lg:col-span-5 flex flex-col space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+          <i data-lucide="map" class="w-4 h-4 text-cyan-400"></i>
+          Geospatial Hazard Map
+        </h2>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <button type="button" id="mapToggleBtn" onclick="toggleMainMap()" class="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Minimize / expand map">
+            <i data-lucide="chevrons-up" id="mapToggleIcon" class="w-3.5 h-3.5"></i>
+            <span id="mapToggleLabel">Minimize</span>
+          </button>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span> High (75+)</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Med (45-74)</span>
+          <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Low (&lt;45)</span>
+        </div>
+      </div>
+
+      <div id="mainMapWrap" class="relative z-0 h-[380px] lg:h-[600px] rounded-2xl border border-slate-800 overflow-hidden shadow-2xl bg-slate-900" style="isolation:isolate;">
+        <div id="adminMap" class="absolute inset-0 w-full h-full"></div>
+      </div>
+    </div>
+
+    <!-- Right Column: Triage Queue & Actions (7 Cols) -->
+    <div class="lg:col-span-7 flex flex-col space-y-4">
+      
+      <!-- Filters and Status Tabs -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5 space-y-3 shadow-md">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <!-- Status Tabs -->
+          <div class="flex flex-wrap gap-1" id="statusTabs">
+            <button onclick="setStatusFilter('ALL')" data-filter="ALL" class="status-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-600 text-white transition">
+              All
+            </button>
+            <button onclick="setStatusFilter('Reported')" data-filter="Reported" class="status-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+              Reported
+            </button>
+            <button onclick="setStatusFilter('Assigned')" data-filter="Assigned" class="status-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+              Assigned
+            </button>
+            <button onclick="setStatusFilter('In Progress')" data-filter="In Progress" class="status-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+              In Progress
+            </button>
+            <button onclick="setStatusFilter('Resolved')" data-filter="Resolved" class="status-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 transition">
+              Resolved
+            </button>
+          </div>
+
+          <!-- Search Filter -->
+          <div class="relative w-full sm:w-48">
+            <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Filter queue..." class="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500" />
+            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Triage Queue Table / Cards -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex-1 flex flex-col">
+        <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <i data-lucide="list-ordered" class="w-4 h-4 text-cyan-400"></i>
+            <span>Triage Priority Queue</span>
+            <span id="queueCountBadge" class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono text-[10px]">0 records</span>
+          </div>
+          <span class="text-[11px] text-slate-500">Sorted by Priority Score &darr;</span>
+        </div>
+
+        <!-- Table Container -->
+        <div class="overflow-x-auto flex-1 max-h-[560px] overflow-y-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-950/70 text-slate-400 font-medium sticky top-0 backdrop-blur z-10 border-b border-slate-800">
+              <tr>
+                <th class="py-2.5 px-3">Score</th>
+                <th class="py-2.5 px-3">Damage & Severity</th>
+                <th class="py-2.5 px-3">Road Class</th>
+                <th class="py-2.5 px-3">Current Status</th>
+                <th class="py-2.5 px-3">Quick Transition</th>
+                <th class="py-2.5 px-3 text-right">Inspect</th>
+              </tr>
+            </thead>
+            <tbody id="triageTableBody" class="divide-y divide-slate-800/60 font-normal">
+              <tr>
+                <td colspan="6" class="text-center py-12 text-slate-500">
+                  <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+                  Loading road damage reports...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Inspection Modal Dialog -->
+  <div id="inspectModal" class="hidden fixed inset-0 z-[2000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative overflow-hidden max-h-[90vh] overflow-y-auto">
+      <button onclick="closeInspectModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg bg-slate-800 transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+          <i data-lucide="file-check" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 class="text-lg font-bold text-white">Hazard Inspection & Dispatch</h3>
+          <p class="text-xs text-slate-400" id="modalReportId">ID: ...</p>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <!-- Image with Bounding Box Overlay -->
+        <div class="rounded-xl overflow-hidden border border-slate-700 bg-slate-950 relative">
+          <img id="modalImg" src="" alt="Damage Detection" class="w-full max-h-72 object-contain mx-auto" />
+          <div class="absolute bottom-2 left-2 bg-slate-950/90 text-cyan-300 text-xs px-2.5 py-1 rounded border border-cyan-500/30">
+            YOLOv8 Defect Detection
+          </div>
+        </div>
+
+        <!-- Details Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+          <div class="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+            <span class="text-slate-500 block text-[10px]">Priority Score</span>
+            <span id="modalPriority" class="text-lg font-extrabold text-red-400">85</span>
+          </div>
+          <div class="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+            <span class="text-slate-500 block text-[10px]">Severity</span>
+            <span id="modalSeverity" class="font-bold text-amber-400">High</span>
+          </div>
+          <div class="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+            <span class="text-slate-500 block text-[10px]">Classification</span>
+            <span id="modalDamageType" class="font-bold text-slate-200 capitalize">Pothole</span>
+          </div>
+          <div class="p-2.5 bg-slate-950 rounded-lg border border-slate-800">
+            <span class="text-slate-500 block text-[10px]">Confidence</span>
+            <span id="modalConfidence" class="font-bold text-cyan-400">92%</span>
+          </div>
+        </div>
+
+        <!-- Coordinates & Road Class -->
+        <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <span class="text-slate-500">Coordinates:</span>
+            <span id="modalCoords" class="font-mono text-slate-200 ml-1">37.7749, -122.4194</span>
+          </div>
+          <div>
+            <span class="text-slate-500">Road Class:</span>
+            <span id="modalRoadClass" class="text-slate-200 ml-1">Highway / Arterial</span>
+          </div>
+        </div>
+
+        <!-- Location Map (collapsible) -->
+        <div class="rounded-xl border border-slate-700 bg-slate-950 overflow-hidden">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+            <span class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5 text-cyan-400"></i> Hazard Location
+            </span>
+            <button type="button" id="inspectMapToggle" onclick="toggleInspectMap()" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">Minimize</button>
+          </div>
+          <div id="inspectMapWrap" class="relative z-0 h-48 w-full" style="isolation:isolate;">
+            <div id="inspectMap" class="absolute inset-0 w-full h-full"></div>
+          </div>
+        </div>
+
+        <!-- Crew Assignment Form -->
+        <div class="space-y-3 pt-2">
+          <label class="text-xs font-semibold text-slate-300">Assign Maintenance Crew</label>
+          <div class="flex gap-2">
+            <select id="modalCrewSelect" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200">
+              <option value="Alpha Crew #1">Alpha Crew #1 (Rapid Asphalt Patch)</option>
+              <option value="Bravo Rapid Response">Bravo Rapid Response (Corridor Clearance)</option>
+              <option value="Delta Maintenance Team">Delta Maintenance Team (Structural Repair)</option>
+              <option value="Public Works Fleet #4">Public Works Fleet #4 (Cold Milling & Seal)</option>
+            </select>
+            <button onclick="saveCrewAssignment()" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold transition">
+              Assign & Dispatch
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-[3000] flex flex-col gap-2"></div>
+
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>
